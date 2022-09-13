@@ -69,7 +69,9 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd);
 int main(int argc, char **argv) {
   struct mg_mgr manager;
   mg_mgr_init(&manager);
-  mg_http_listen(&manager, "0.0.0.0:8080", api_handler, NULL);
+  char *addr = "0.0.0.0:8080";
+  if (argc >= 3) addr = argv[2];
+  mg_http_listen(&manager, addr, api_handler, NULL);
 
 #if ALLOCATE_EVERYTHING
   int n_threads = 4;
@@ -192,9 +194,11 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
       mg_http_reply(c, 200, "Content-Type: application/json\r\n", buffer);
     } else if (mg_http_match_uri(hm, "/blocks")) {
       mg_printf(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+      char buffer[1024];
       for (OddBlock *blk = blocks_head; blk; blk = blk->next) {
-        mg_http_printf_chunk(c, "block %p (%zd...%zd)\n",
+        snprintf(buffer, 1023, "block %p (%zd...%zd)\n",
             blk, blk->start, blk->start + 0x8000000 - 1);
+        mg_http_printf_chunk(c, buffer);
       }
       mg_http_printf_chunk(c, "");
     } else if (mg_http_match_uri(hm, "/isEven/*")) {

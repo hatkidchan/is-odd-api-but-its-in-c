@@ -18,7 +18,7 @@
 #endif
 
 #ifndef ALLOCATE_EVERYTHING
-#define ALLOCATE_EVERYTHING 1
+#define ALLOCATE_EVERYTHING 0
 #endif
 
 
@@ -47,7 +47,9 @@ void block_add(OddBlock *blk);
 int check_is_odd(uint64_t value);
 inline uint64_t get_mem_usage(void);
 inline double get_time(void);
+#if ALLOCATE_EVERYTHING
 void *allocation_thread(void*);
+#endif
 
 OddBlock *blocks_head = NULL;
 size_t n_blocks = 0;
@@ -67,15 +69,19 @@ int main(void) {
   mg_mgr_init(&manager);
   mg_http_listen(&manager, "0.0.0.0:8080", api_handler, NULL);
 
+#if ALLOCATE_EVERYTHING
   int n_threads = 4;
   pthread_t *threads = calloc(n_threads, sizeof(pthread_t));
   for (int i = 0; i < n_threads; i++)
     pthread_create(&threads[i], NULL, allocation_thread, NULL);
+#endif
 
   for (;;) mg_mgr_poll(&manager, 1000);
 
+#if ALLOCATE_EVERYTHING
   for (int i = 0; i < n_threads; i++)
     pthread_join(threads[i], NULL);
+#endif
 
   mg_mgr_free(&manager);
   return 0;
@@ -228,7 +234,7 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
       mg_http_reply(c, 200, "", "%zd", blocks_head->start + 0x7FFFFFF);
       n_requests++;
     } else {
-      mg_http_reply(c, 500, "", "Internal Server Error");
+      mg_http_reply(c, 500, "Content-Type: text/plain; charset=utf-8\r\n", "Internal Server Error");
     }
   }
 }
@@ -249,6 +255,7 @@ double get_time(void) {
 
 }
 
+#if ALLOCATE_EVERYTHING
 void *allocation_thread(void*_) {
   while (true) {
     next_block_number += 0x8000000;
@@ -257,3 +264,4 @@ void *allocation_thread(void*_) {
     block_add(blk);
   }
 }
+#endif

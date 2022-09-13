@@ -66,13 +66,14 @@ uint64_t next_block_number = 0;
 
 void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd);
 
-int main(void) {
+int main(int argc, char **argv) {
   struct mg_mgr manager;
   mg_mgr_init(&manager);
   mg_http_listen(&manager, "0.0.0.0:8080", api_handler, NULL);
 
 #if ALLOCATE_EVERYTHING
   int n_threads = 4;
+  if (argc >= 2) n_threads = atoi(argv[1]);
   pthread_t *threads = calloc(n_threads, sizeof(pthread_t));
   for (int i = 0; i < n_threads; i++)
     pthread_create(&threads[i], NULL, allocation_thread, NULL);

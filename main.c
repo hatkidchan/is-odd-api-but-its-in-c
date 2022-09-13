@@ -7,6 +7,9 @@
 #include <mongoose.h>
 #include <sys/time.h>
 
+
+#define ALLOC_ON_DEMAND 1
+
 #define panic(...) { \
   fprintf(stderr, "!PANIC! at %s:%d\n", __FILE__, __LINE__);\
   fprintf(stderr, __VA_ARGS__); \
@@ -19,12 +22,18 @@ typedef struct odd_block {
   struct odd_block *next;
 } OddBlock;
 
+enum {
+  RESPONSE_ODD,
+  RESPONSE_EVEN,
+  RESPONSE_NOT_FOUND
+};
+
 
 OddBlock *block_init(uint64_t start);
 bool block_in_range(OddBlock blk, uint64_t value);
 bool block_check(OddBlock blk, uint64_t value);
 void block_add(OddBlock *blk);
-bool check_is_odd(uint64_t value);
+int check_is_odd(uint64_t value);
 inline uint64_t get_mem_usage(void);
 inline double get_time(void);
 
@@ -90,26 +99,35 @@ void block_add(OddBlock *blk) {
   }
 }
 
-bool check_is_odd(uint64_t value) {
+int check_is_odd(uint64_t value) {
   for (OddBlock *blk = blocks_head; blk != NULL; blk = blk->next) {
     if (block_in_range(*blk, value)) {
-      return block_check(*blk, value);
+      return block_check(*blk, value) ? RESPONSE_ODD : RESPONSE_EVEN;
     }
   }
 
+
+#if ALLOC_ON_DEMAND
   // no blocks with that number were found
   OddBlock *blk = block_init(value & ~0xFFFFFF);
-  if (!blk) return false;
+  if (!blk) return RESPONSE_NOT_FOUND;
   block_add(blk);
-  return block_check(*blk, value);
+  return block_check(*blk, value) ? RESPONSE_ODD : RESPONSE_EVEN;
+#else
+  return RESPONSE_NOT_FOUND;
+#endif
 }
 
 void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
   if (ev == MG_EV_HTTP_MSG) {
-    static char url[256];
+    static char url[256], method[32], addr[256];
     struct mg_http_message *hm = evd;
-    memset(url, 0, 256);
-    memcpy(url, hm->uri.ptr, hm->uri.len);
+    memset(url, 0, 256); memcpy(url, hm->uri.ptr, hm->uri.len);
+    memset(method, 0, 32); memcpy(method, hm->method.ptr, hm->method.len);
+    mg_straddr(c, addr, 255);
+
+    printf("%-16s %-8s %s\n", addr, method, url);
+
     if (mg_http_match_uri(hm, "/analytics")) {
       mg_http_reply(c, 200, "Content-Type: application/json\r\n",
           "{"
@@ -137,14 +155,38 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
     } else if (mg_http_match_uri(hm, "/isEven/*")) {
       uint64_t number;
       sscanf(url, "/isEven/%zd", &number);
-      bool res = !check_is_odd(number);
-      mg_http_reply(c, 200, "", res ? "true" : "false");
+      switch (check_is_odd(number)) {
+        case RESPONSE_NOT_FOUND:
+          mg_http_reply(c, 451, "Content-Type: application/json\r\n",
+              "{ \"message\": \"This number is not indexed yet.\" }");
+          break;
+        case RESPONSE_ODD:
+          mg_http_reply(c, 200, "Content-Type: application/json\r\n",
+              "{ \"even\": false }");
+          break;
+        case RESPONSE_EVEN:
+          mg_http_reply(c, 200, "Content-Type: application/json\r\n",
+              "{ \"even\": true }");
+          break;
+      }
       n_requests++;
     } else if (mg_http_match_uri(hm, "/isOdd/*")) {
       uint64_t number;
       sscanf(url, "/isOdd/%zd", &number);
-      bool res = check_is_odd(number);
-      mg_http_reply(c, 200, "", res ? "true" : "false");
+      switch (check_is_odd(number)) {
+        case RESPONSE_NOT_FOUND:
+          mg_http_reply(c, 451, "Content-Type: application/json\r\n",
+              "{ \"message\": \"This number is not indexed yet.\" }");
+          break;
+        case RESPONSE_ODD:
+          mg_http_reply(c, 200, "Content-Type: application/json\r\n",
+              "{ \"odd\": true }");
+          break;
+        case RESPONSE_EVEN:
+          mg_http_reply(c, 200, "Content-Type: application/json\r\n",
+              "{ \"odd\": false }");
+          break;
+      }
       n_requests++;
     } else if (mg_http_match_uri(hm, "/lastEven")) {
       mg_http_reply(c, 200, "", "%zd", blocks_head->start + 0x7FFFFFE);
@@ -164,7 +206,7 @@ uint64_t get_mem_usage(void) {
   uint64_t res;
   fscanf(fp, "%zd", &res);
   fclose(fp);
-  return res * 1024;
+  return res;
 }
 
 double get_time(void) {

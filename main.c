@@ -93,10 +93,12 @@ int main(int argc, char **argv) {
 OddBlock *block_init(uint64_t start) {
   OddBlock *blk = calloc(1, sizeof(OddBlock));
   if (blk == NULL) {
+    printf("Failed to allocate a new block: %zd\n", start);
     n_allocs_failed++;
     return NULL;
   }
   if ((blk->block = malloc(0x1000000)) == NULL) {
+    printf("Failed to allocate a new block contents: %zd\n", start);
     free(blk);
     n_allocs_failed++;
     return NULL;

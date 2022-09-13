@@ -7,9 +7,20 @@
 #include <mongoose.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <pthread.h>
 
-
+#ifndef ALLOC_ON_DEMAND
 #define ALLOC_ON_DEMAND 1
+#endif
+
+#ifndef OPTIMIZED_PRECALCULATION
+#define OPTIMIZED_PRECALCULATION 1
+#endif
+
+#ifndef ALLOCATE_EVERYTHING
+#define ALLOCATE_EVERYTHING 1
+#endif
+
 
 #define panic(...) { \
   fprintf(stderr, "!PANIC! at %s:%d\n", __FILE__, __LINE__);\
@@ -29,7 +40,6 @@ enum {
   RESPONSE_NOT_FOUND
 };
 
-
 OddBlock *block_init(uint64_t start);
 bool block_in_range(OddBlock blk, uint64_t value);
 bool block_check(OddBlock blk, uint64_t value);
@@ -37,11 +47,18 @@ void block_add(OddBlock *blk);
 int check_is_odd(uint64_t value);
 inline uint64_t get_mem_usage(void);
 inline double get_time(void);
+void *allocation_thread(void*);
 
 OddBlock *blocks_head = NULL;
 size_t n_blocks = 0;
 uint64_t n_requests = 0;
 uint64_t n_allocs_failed = 0;
+pthread_mutex_t blocks_head_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#if ALLOCATE_EVERYTHING
+uint64_t next_block_number = 0;
+#endif
+
 
 void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd);
 
@@ -49,11 +66,20 @@ int main(void) {
   struct mg_mgr manager;
   mg_mgr_init(&manager);
   mg_http_listen(&manager, "0.0.0.0:8080", api_handler, NULL);
+
+  int n_threads = 4;
+  pthread_t *threads = calloc(n_threads, sizeof(pthread_t));
+  for (int i = 0; i < n_threads; i++)
+    pthread_create(&threads[i], NULL, allocation_thread, NULL);
+
   for (;;) mg_mgr_poll(&manager, 1000);
+
+  for (int i = 0; i < n_threads; i++)
+    pthread_join(threads[i], NULL);
+
   mg_mgr_free(&manager);
   return 0;
 }
-
 
 OddBlock *block_init(uint64_t start) {
   OddBlock *blk = calloc(1, sizeof(OddBlock));
@@ -68,13 +94,13 @@ OddBlock *block_init(uint64_t start) {
   }
   n_blocks++;
   blk->start = start;
-#if 1
+#if OPTIMIZED_PRECALCULATION
+  memset(blk->block, 0xaa, 0x1000000);
+#else
   for (uint64_t off = 0; off < 0x8000000; off++) {
     off_t byte_ndx = off >> 3;
     blk->block[byte_ndx] |= ((start + off) % 2) << (off % 8);
   }
-#else
-  memset(blk->block, 0xaa, 0x1000000);
 #endif
   return blk;
 }
@@ -91,13 +117,19 @@ bool block_check(OddBlock blk, uint64_t value) {
 }
 
 void block_add(OddBlock *blk) {
-  printf("added block %p with start=%zd\n", blk, blk->start);
+#if ALLOCATE_EVERYTHING
+  pthread_mutex_lock(&blocks_head_lock);
+#endif
   if (blocks_head) {
     blk->next = blocks_head;
     blocks_head = blk;
   } else {
     blocks_head = blk;
   }
+#if ALLOCATE_EVERYTHING
+  pthread_mutex_unlock(&blocks_head_lock);
+#endif
+  printf("added block %p with start=%zd\n", blk, blk->start);
 }
 
 int check_is_odd(uint64_t value) {
@@ -215,4 +247,13 @@ double get_time(void) {
   gettimeofday(&now, NULL);
   return now.tv_sec + now.tv_usec / 1000000.0;
 
+}
+
+void *allocation_thread(void*_) {
+  while (true) {
+    next_block_number += 0x8000000;
+    OddBlock *blk = block_init(next_block_number);
+    if (!blk) continue;
+    block_add(blk);
+  }
 }

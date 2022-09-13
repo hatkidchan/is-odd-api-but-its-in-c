@@ -173,7 +173,8 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
     printf("%-16s %-8s %s\n", addr, method, url);
 
     if (mg_http_match_uri(hm, "/analytics")) {
-      mg_http_reply(c, 200, "Content-Type: application/json\r\n",
+      char buffer[1024] = { 0 };
+      snprintf(buffer, 1023, 
           "{"
           "\"ts\":%lf,"
           "\"n_blocks\":%zd,"
@@ -187,8 +188,8 @@ void api_handler(struct mg_connection *c, int ev, void *evd, void *fnd) {
             get_mem_usage(),
             blocks_head ? blocks_head->start + 0x8000000 - 1 : -1,
             n_requests,
-            n_allocs_failed
-            );
+            n_allocs_failed);
+      mg_http_reply(c, 200, "Content-Type: application/json\r\n", buffer);
     } else if (mg_http_match_uri(hm, "/blocks")) {
       mg_printf(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
       for (OddBlock *blk = blocks_head; blk; blk = blk->next) {

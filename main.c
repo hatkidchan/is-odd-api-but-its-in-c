@@ -6,6 +6,7 @@
 #include <string.h>
 #include <mongoose.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 
 #define ALLOC_ON_DEMAND 1
@@ -206,7 +207,7 @@ uint64_t get_mem_usage(void) {
   uint64_t res;
   fscanf(fp, "%zd", &res);
   fclose(fp);
-  return res;
+  return res * getpagesize();
 }
 
 double get_time(void) {
